@@ -1,0 +1,5 @@
+{
+  "name": "Multi-Model Arena",
+  "description": "A high-performance chat interface to compare responses from multiple AI models in parallel.",
+  "requestFramePermissions": []
+}

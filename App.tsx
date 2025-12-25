@@ -86,6 +86,10 @@ export default function App() {
     });
   };
 
+  const handleRenameSession = (id: string, newTitle: string) => {
+    setSessions(prev => prev.map(s => s.id === id ? { ...s, title: newTitle } : s));
+  };
+
   const handleToggleSelection = (turnId: string, modelId: string) => {
     if (isGenerating && turnId === turns[turns.length - 1]?.id) return;
 
@@ -100,7 +104,6 @@ export default function App() {
           ? turn.selectedModelIds.filter(id => id !== modelId)
           : [...turn.selectedModelIds, modelId];
 
-        // Sync global active state if it's the last turn
         if (index === session.turns.length - 1) {
           setActiveModelIds(newSelectedIds);
         }
@@ -110,6 +113,80 @@ export default function App() {
 
       return { ...session, turns: newTurns };
     }));
+  };
+
+  const handleFeedback = (turnId: string, modelId: string, feedback: 'like' | 'dislike' | null) => {
+    setSessions(prev => prev.map(session => {
+      if (session.id !== activeSessionId) return session;
+      const newTurns = session.turns.map(turn => {
+        if (turn.id !== turnId) return turn;
+        return {
+          ...turn,
+          candidates: {
+            ...turn.candidates,
+            [modelId]: { ...turn.candidates[modelId], feedback }
+          }
+        };
+      });
+      return { ...session, turns: newTurns };
+    }));
+  };
+
+  const handleRegenerate = async (turnId: string, modelId: string) => {
+    if (isGenerating) return;
+    
+    const sess = sessions.find(s => s.id === activeSessionId);
+    if (!sess) return;
+    
+    const turnIndex = sess.turns.findIndex(t => t.id === turnId);
+    if (turnIndex === -1) return;
+    
+    const turn = sess.turns[turnIndex];
+    const model = AVAILABLE_MODELS.find(m => m.id === modelId);
+    if (!model) return;
+
+    setIsGenerating(true);
+
+    const updateModelStatus = (status: 'loading' | 'streaming' | 'complete' | 'error', content?: string) => {
+      setSessions(prev => prev.map(s => {
+        if (s.id !== activeSessionId) return s;
+        const newTurns = s.turns.map(t => {
+          if (t.id !== turnId) return t;
+          return {
+            ...t,
+            candidates: {
+              ...t.candidates,
+              [modelId]: { 
+                ...t.candidates[modelId], 
+                status,
+                content: content !== undefined ? content : t.candidates[modelId].content 
+              }
+            }
+          };
+        });
+        return { ...s, turns: newTurns, updatedAt: Date.now() };
+      }));
+    };
+
+    try {
+      // Re-fetch context up to this turn
+      const previousTurns = sess.turns.slice(0, turnIndex);
+      const previousHistory = getHistoryForModel(modelId, previousTurns);
+      const fullHistory = [...previousHistory, turn.userMessage];
+
+      updateModelStatus('loading', '');
+
+      await streamModelResponse(model, fullHistory, (chunkText) => {
+        updateModelStatus('streaming', chunkText);
+      });
+
+      updateModelStatus('complete');
+    } catch (error) {
+      console.error(`Regeneration error:`, error);
+      updateModelStatus('error');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const toggleActiveModel = (modelId: string) => {
@@ -122,7 +199,6 @@ export default function App() {
     
     setActiveModelIds(newActiveIds);
 
-    // Also sync the visual checkbox of the last turn if it exists
     if (activeSessionId) {
       setSessions(prev => prev.map(s => {
         if (s.id !== activeSessionId || s.turns.length === 0) return s;
@@ -144,12 +220,11 @@ export default function App() {
 
     let currentSessionId = activeSessionId;
     
-    // Create new session if none exists
     if (!currentSessionId) {
       const newId = `session-${Date.now()}`;
       const newSession: ChatSession = {
         id: newId,
-        title: text.slice(0, 20) + (text.length > 20 ? '...' : ''),
+        title: text.slice(0, 25).trim() + (text.length > 25 ? '...' : ''),
         turns: [],
         updatedAt: Date.now()
       };
@@ -193,7 +268,6 @@ export default function App() {
       };
     });
 
-    // Update session state with new turn
     setSessions(prev => prev.map(s => {
       if (s.id !== currentSessionId) return s;
       return {
@@ -204,11 +278,8 @@ export default function App() {
       };
     }));
 
-    // Start generating for each model
     const promises = targetModels.map(async (model) => {
       try {
-        // Fetch the current turns for history reconstruction
-        // Note: we use currentSession reference from state
         const sess = sessions.find(s => s.id === currentSessionId);
         const previousHistory = getHistoryForModel(model.id, sess?.turns || []);
         const fullHistory = [...previousHistory, userMsg];
@@ -241,7 +312,6 @@ export default function App() {
         });
 
         updateModelStatus('complete');
-
       } catch (error) {
         console.error(`Error in model ${model.name}:`, error);
         setSessions(prev => prev.map(s => {
@@ -267,22 +337,20 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-950 text-gray-100 overflow-hidden">
-      {/* Sidebar for session management */}
       <Sidebar 
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
         onNewChat={handleNewChat}
         onDeleteSession={handleDeleteSession}
+        onRenameSession={handleRenameSession}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />
 
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Top Header */}
         <header className="h-16 shrink-0 border-b border-gray-800 flex items-center px-4 sm:px-6 justify-between bg-gray-900 shadow-sm z-30">
           <div className="flex items-center gap-3">
-              {/* Sidebar Toggle (Mobile/Tablet) */}
               <button 
                 onClick={() => setIsSidebarOpen(true)}
                 className="lg:hidden p-2 -ml-2 text-gray-400 hover:text-white"
@@ -300,7 +368,6 @@ export default function App() {
               <h1 className="font-bold text-lg tracking-tight hidden sm:block">AI Arena</h1>
           </div>
 
-          {/* Model Selector in Header */}
           <div className="flex items-center gap-1 sm:gap-2 bg-gray-800/50 p-1 rounded-xl border border-gray-700/50">
             {AVAILABLE_MODELS.map(model => {
               const isActive = activeModelIds.includes(model.id);
@@ -341,7 +408,6 @@ export default function App() {
           <div className="w-8 hidden sm:block"></div>
         </header>
 
-        {/* Main Content Area */}
         <main 
           ref={scrollRef}
           className="flex-1 overflow-y-auto w-full relative scroll-smooth pb-4"
@@ -369,13 +435,14 @@ export default function App() {
                   turn={turn}
                   configs={AVAILABLE_MODELS}
                   onToggleSelection={handleToggleSelection}
+                  onRegenerate={handleRegenerate}
+                  onFeedback={handleFeedback}
                   isLast={index === turns.length - 1}
                 />
               ))}
            </div>
         </main>
 
-        {/* Input Footer */}
         <InputArea onSend={handleSend} disabled={isGenerating} />
       </div>
     </div>

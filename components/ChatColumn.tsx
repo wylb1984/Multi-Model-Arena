@@ -6,11 +6,14 @@ interface ChatTurnProps {
   turn: Turn;
   configs: ModelConfig[];
   onToggleSelection: (turnId: string, modelId: string) => void;
+  onRegenerate: (turnId: string, modelId: string) => void;
+  onFeedback: (turnId: string, modelId: string, feedback: 'like' | 'dislike' | null) => void;
   isLast: boolean;
 }
 
-export const ChatTurn: React.FC<ChatTurnProps> = ({ turn, configs, onToggleSelection, isLast }) => {
+export const ChatTurn: React.FC<ChatTurnProps> = ({ turn, configs, onToggleSelection, onRegenerate, onFeedback, isLast }) => {
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
   
   // Sort configs to maintain consistent order, but only show those present in this turn
   const activeConfigs = configs.filter(c => turn.candidates[c.id]);
@@ -25,13 +28,12 @@ export const ChatTurn: React.FC<ChatTurnProps> = ({ turn, configs, onToggleSelec
     return () => { document.body.style.overflow = ''; };
   }, [expandedModelId]);
 
-  const handleCardClick = (modelId: string, e: React.MouseEvent) => {
-    // Only open modal if double clicked or if specifically clicking the content area
-    // This allows single clicks for selection without popping the modal every time
-    // But for this UI, we'll keep the single click expand as the primary "read more" trigger 
-    // but make the card itself scrollable so they don't *have* to expand.
-    if ((e.target as HTMLElement).closest('label')) return;
-    // setExpandedModelId(modelId); // Optional: disabled for now to favor in-column scrolling
+  const handleCopy = (modelId: string, content: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(content).then(() => {
+      setCopyingId(modelId);
+      setTimeout(() => setCopyingId(null), 2000);
+    });
   };
 
   return (
@@ -58,17 +60,19 @@ export const ChatTurn: React.FC<ChatTurnProps> = ({ turn, configs, onToggleSelec
         </div>
       </div>
 
-      {/* Model Responses Grid (4 Columns + Screen Adapting Height) */}
+      {/* Model Responses Grid */}
       <div className="px-2 sm:px-4 w-full">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {activeConfigs.map(config => {
             const response = turn.candidates[config.id];
             const isSelected = turn.selectedModelIds.includes(config.id);
+            const isLike = response.feedback === 'like';
+            const isDislike = response.feedback === 'dislike';
 
             return (
               <div 
                 key={config.id} 
-                className={`flex flex-col rounded-2xl border transition-all duration-300 overflow-hidden relative min-h-[300px] h-[40vh] lg:h-[55vh] ${
+                className={`flex flex-col rounded-2xl border transition-all duration-300 overflow-hidden relative min-h-[300px] h-[45vh] lg:h-[60vh] group ${
                   isSelected 
                     ? 'bg-gray-800/90 border-gray-600 shadow-xl ring-1 ring-gray-700/50' 
                     : 'bg-gray-900/40 border-gray-800 opacity-60 grayscale-[0.3] hover:opacity-100 hover:grayscale-0'
@@ -97,11 +101,10 @@ export const ChatTurn: React.FC<ChatTurnProps> = ({ turn, configs, onToggleSelec
                    </label>
                 </div>
 
-                {/* Adaptive Body with Internal Scroll */}
+                {/* Adaptive Body */}
                 <div 
                   className="p-4 text-sm text-gray-300 leading-relaxed overflow-y-auto flex-1 scrollbar-thin scrollbar-thumb-gray-700 hover:scrollbar-thumb-gray-600 scrollbar-track-transparent custom-scroll-area"
                   onDoubleClick={() => setExpandedModelId(config.id)}
-                  title="Double click to expand"
                 >
                    <div className="break-words pb-4">
                      {response.content ? (
@@ -127,16 +130,56 @@ export const ChatTurn: React.FC<ChatTurnProps> = ({ turn, configs, onToggleSelec
                    </div>
                 </div>
 
-                {/* Optional: Expand Button Overlay */}
-                <button 
-                  onClick={() => setExpandedModelId(config.id)}
-                  className="absolute bottom-3 right-3 p-1.5 bg-gray-800/80 hover:bg-gray-700 border border-gray-700 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 hover:text-white"
-                  style={{ opacity: 'var(--expand-btn-opacity, 0)' }} // Using a simple CSS variable or just rely on CSS
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
-                  </svg>
-                </button>
+                {/* Action Toolbar */}
+                <div className="px-3 py-2 border-t border-gray-700/20 bg-gray-950/20 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => handleCopy(config.id, response.content, e)}
+                      className={`p-1.5 rounded-lg transition-all ${copyingId === config.id ? 'text-emerald-400 bg-emerald-400/10' : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'}`}
+                      title="复制回答"
+                    >
+                      {copyingId === config.id ? (
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                          <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+                        </svg>
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" />
+                        </svg>
+                      )}
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onRegenerate(turn.id, config.id); }}
+                      className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800 rounded-lg transition-all"
+                      title="重推回答"
+                      disabled={response.status === 'loading' || response.status === 'streaming'}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onFeedback(turn.id, config.id, isLike ? null : 'like'); }}
+                      className={`p-1.5 rounded-lg transition-all ${isLike ? 'text-blue-400 bg-blue-400/10 shadow-sm' : 'text-gray-500 hover:text-blue-400 hover:bg-gray-800'}`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill={isLike ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3a.75.75 0 01.75-.75A2.25 2.25 0 0116.5 4.5v2.25a.75.75 0 00.75.75h2.25a2.25 2.25 0 012.25 2.25v.75a2.25 2.25 0 01-2.25 2.25h-.75a.75.75 0 00-.75.75V15a2.25 2.25 0 01-2.25 2.25h-4.5a2.25 2.25 0 01-1.5-.572l-1.613-1.45a2.25 2.25 0 00-1.5-.578H6.633c-1.246 0-2.25-1.004-2.25-2.25v-3c0-1.246 1.004-2.25 2.25-2.25z" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onFeedback(turn.id, config.id, isDislike ? null : 'dislike'); }}
+                      className={`p-1.5 rounded-lg transition-all ${isDislike ? 'text-red-400 bg-red-400/10 shadow-sm' : 'text-gray-500 hover:text-red-400 hover:bg-gray-800'}`}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" fill={isDislike ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3.5 h-3.5">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 13.5l-3.836-3.836a2.625 2.625 0 010-3.712L7.5 2.112a2.625 2.625 0 013.712 0L13.5 5.926l3.836-3.836a2.625 2.625 0 013.712 0l3.836 3.836a2.625 2.625 0 010 3.712L21 13.5l-3.836 3.836a2.625 2.625 0 01-3.712 0L13.5 13.5z" style={{ display: 'none' }} /* Note: I'll use a better path for dislike below */ />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M17.367 13.5c-.806 0-1.533.446-2.031 1.08a9.041 9.041 0 01-2.861 2.4c-.723.384-1.35.956-1.653 1.715a4.498 4.498 0 00-.322 1.672V21a.75.75 0 01-.75.75A2.25 2.25 0 017.5 19.5v-2.25a.75.75 0 00-.75-.75H4.5a2.25 2.25 0 01-2.25-2.25v-.75a2.25 2.25 0 012.25-2.25h.75a.75.75 0 00.75-.75V9a2.25 2.25 0 012.25-2.25h4.5a2.25 2.25 0 011.5.572l1.613 1.45a2.25 2.25 0 001.5.578h1.217c1.246 0 2.25 1.004 2.25 2.25v3c0 1.246-1.004 2.25-2.25 2.25z" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
             );
           })}

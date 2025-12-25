@@ -27,6 +27,7 @@ export interface ModelResponse {
   modelId: string;
   content: string;
   status: 'loading' | 'streaming' | 'complete' | 'error';
+  feedback?: 'like' | 'dislike' | null;
 }
 
 export interface Turn {

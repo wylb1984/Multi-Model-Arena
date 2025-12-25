@@ -1,3 +1,4 @@
+
 export interface Attachment {
   type: 'image' | 'video';
   mimeType: string;
@@ -22,20 +23,23 @@ export interface ModelConfig {
   systemPrompt: string;
 }
 
-// Represents the response from a single model in a turn
 export interface ModelResponse {
   modelId: string;
   content: string;
   status: 'loading' | 'streaming' | 'complete' | 'error';
 }
 
-// Represents a single turn of conversation
 export interface Turn {
   id: string;
   timestamp: number;
   userMessage: Message;
-  // Responses from all models that participated in this turn
   candidates: Record<string, ModelResponse>;
-  // Which models are selected to continue to the next turn
   selectedModelIds: string[];
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  turns: Turn[];
+  updatedAt: number;
 }
